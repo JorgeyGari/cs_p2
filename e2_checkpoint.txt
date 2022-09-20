@@ -1,0 +1,170 @@
+{
+  "metadata": {
+    "kernelspec": {
+      "name": "node_nteract",
+      "language": "javascript",
+      "display_name": "Node.js (nteract)"
+    },
+    "kernel_info": {
+      "name": "node_nteract"
+    },
+    "language_info": {
+      "name": "javascript",
+      "version": "8.2.1",
+      "mimetype": "application/javascript",
+      "file_extension": ".js"
+    },
+    "title": "WepSIM ",
+    "nteract": {
+      "version": "nteract-on-jupyter@2.0.0"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "source": "## mode",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "ep",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "mode",
+        "type": "string",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## firmware",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "# The initials RF will be used to refer to the Register File\n# The initials MM will be used to refer to the Main Memory\n\nbegin {\n    fetch:          (T2, C0),\n                    (TA, R, BW=11, M1=1, C1=1),\n                    (M2, C2, T1, C3),\n                    (A0, B=0, C=0)\n}\n\nmov RE1 U32 {\n        co=010010,\n        nwords=2,\n        RE1=reg(20,16)\n  \t\t\tU32=inm(63,32)\n        {\n          # MAR <- PC\n                (T2, C0),\n          # MBR <- MM[MAR]\n                (TA, R, BW=11, M1=1, C1,\n          # PC <- PC + 4\n                M2=1, C2),\n          #IR[R1] <- MBR\n                (T1, SelC=10000, MR=0, LC=1),\n          #Jump to fetch\n                (A0, B, C=0)\n        }\n}\nstr RE1, (RE2) {\n  \t\t\tco=010000,\n  \t\t\tnwords=1,\n\t\t\t\tRE1=reg(25,21) \n\t\t\t\tRE2=reg(15,11)\n  \t\t\t{\n          # MBR <- RF[RE1]\n          (SelA=10101, MR=0, T9, M1=0, C1)\n          # MAR <- RF[RE2]\n          (SelA=1011, MR=0, T9, C0)\n          # MM <- MAR, MBR\n          (TA, W, BW=11, TD,\n          # Jump back to fetch\n           A0, B, C=0)\n        }\n}\nldr RE1, (RE2) {\n  co=010011,\n  nwords=1,\n  RE1=reg(25,21),\n  RE2=reg(15,11),\n    {\n    # MAR <- RF[RE2]\n    (SelA=1011, MR=0, T9, C0)\n    # MBR <- MAR\n    (TA, R, BW=11, M1, C1)\n  \t# RF[RE1] <- MBR\n  \t(T1, LC, SelC=10101, MR=0,\n    # Jump back to fetch\n     A0, B, C=0)\n  }\n}\nadds RE1, RE2, RE3 {\n  \t\t\tco=011000,\n        nwords=1,\n        RE1=reg(25,21)\n        RE2=reg(20,16)\n  \t\t\tRE3=reg(15,11)\n  \t\t\t{ \n          # RF[RE1] <- RF[RE2] + RF[RE3]\n          (MR=0, SelA=10000, SelB=1011,\n           MC=1, SelCop=1010,\n           T6, SelC=10101, LC=1,\n           SelP=11, M7,\n           C7)\n          # Jump back to fetch\n          (A0, B, C=1)\n        }\n}\nadds RE1, RE2, S16 {\n  \t\t\tco=011010,\n        nwords=1,\n        RE1=reg(25,21),\n        RE2=reg(20,16),\n        S16=inm(15,0)\n  \t\t\t{ \n          # RT1 <- S16\n          (SE=1, Offset=0, Size=10000, T3, C4),\n          # RF[RE1] <- RT1 + RF[RE2]\n          (MR=0, SelB=10000, MA=1, MB=00,\n           MC=1, SelCop=1010,\n           T6, SelC=10101, LC=1, SelP=11, M7, C7,\n          # Jump back to fetch\n           A0, B, C=0)\n        }\n}\nmvns RE1, RE2 {\n\t\t\t\t\tco=011011,\n          nwords=1,\n\t\t\t\t\tRE1=reg(25,21),\n\t\t\t\t\tRE2=reg(15,11)\n\t\t\t\t\t{\n           # RF[RE1] <- NOT(RF[RE2])\n \t\t\t\t\t (MC=1, MR=0, SelA=10101, MA=0,\n            SelCop=0011,\n            T6, SelC=1011, LC=1, SelP=11, M7, C7,\n            # Jumps back to fetch\n            A0, B, C=0)\n          }\n}\ncmp RE1, RE2 {\n  co=010110\n  nwords=1\n  RE1=reg(25,21)\n  RE2=reg(15,11)\n  {\n    # SR <- RF[RE1] - RF[RE2]\n    (MR=0, SelA=10101, SelB=1011,\n     MC=1, SelCop=1011, SelP=11, M7, C7\n    # Jump back to fetch\n    A0, B, C=0)\n  }\n}\nbeq S16 {\n  co=110100\n  nwords=1\n  S16=inm(15,0)\n  {\n   # RT2 <- SR\n   (T8, C5), # We don't want the Status Register to be updated, so we store a copy in RT2\n   (A0=0, B=1, C=110, MADDR=bck2ftch), # If the condition does not hold, we go back to fetch\n   # SR <- RT2\n   (T5, M7=0, C7), # Restore SR\n   # PC <- S16\n   (SE=1, Offset=0, Size=10000, T3, M2=0, C2),\n   # Jump back to fetch\n   (A0, B, C=0),\n     \n   bck2ftch: (T5, M7=0, C7), # Restore SR\n   (A0, B, C=0) # Jump back to fetch\n  }\n}\nbl U16 {\n  co=100001,\n  nwords=1,\n  U16=inm(15,0)\n  {\n    # RF[LR] <- PC\n    (T2, C, LC=1, MR=1, SelC=1110) # $LR is another name for $R14\n    # PC <- U16\n    (SE=0, Size=10000, Offset=0, T3, M2=0, C2,\n     # Jump back to fetch\n     A0, B, C=0)\n  }\n}\nbx RE {\n  co=100010\n  nwords=1\n  RE=reg(20,16)\n  {\n    # PC <- RF[RE]\n    (SelA=10000, MR=0, T9, M2=0, C2,\n     # Jump back to fetch\n     A0, B, C=0)\n  }\n}\nhalt {\n  co=100011,\n  nwords=1\n  { \n    # PC <- RF[R0]\n    (SelA=0, MR=0, T9, M2=0, C2)\n    # RF[R13] <- RF[R0]\n    (SelA=0, MR=0, T9, LC=1, SelC=1101,\n    # Jumps back to fetch\n    A0, B, C=0)\n  }\n}\n\nregisters {\n        0=($R0, $zero),\n        1=($R1),\n        2=($R2),\n        3=($R3),\n        4=($R4),\n        5=($R5),\n        6=($R6),\n        7=($R7),\n  \t\t\t8=($R8),\n  \t\t\t9=($R9),\n  \t\t\t10=($R10),\n  \t\t\t11=($R11),\n  \t\t\t12=($R12),\n  \t\t\t13=($R13, $SP) (stack_pointer),\n  \t\t\t14=($R14, $LR)\n  \t\t\t15=($R15),\n        16=($R16),\n        17=($R17),\n        18=($R18),\n        19=($R19),\n        20=($R20),\n        21=($R21),\n        22=($R22),\n  \t\t\t23=($R23),\n  \t\t\t24=($R24),\n  \t\t\t25=($R25),\n  \t\t\t26=($R26),\n  \t\t\t27=($R27),\n  \t\t\t28=($R28),\n  \t\t\t29=($R29),\n        30=($R30),\n        31=($R31)\n}",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "firmware",
+        "type": "string",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## assembly",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": ".data\n\tvector: .word 1, 2, 3, 4, 5, 6, 7, 8, 9, 10\n#vectorA: .word 1, 0, 1, 0, 1\n#vectorB: .word -1, -2, -3, -4, -5, -6, -7, -8, -9, -10\n#vectorC: .word 0, 0, 0, 0, 0, 0, 0\n \n .text\n sumav: # push $a0 and $a1\n \t\t\t\t\tadds $SP $SP -8\n          adds $SP $SP 4 # Mimicks \"4($sp)\" in MIPS32\n          str $R1 ($SP)\n          adds $SP $SP -4 # Reverts the sum\n          str $R2 ($SP) # No sum needed this time, it was \"0($sp)\"\n        # $R5 = sum of the vector elements\n        \tmov $R5 0\n      b1: cmp $R1 $zero # First part of what in MIPS32 would be a \"beq\" branch\n      \t\tbeq f1  # Second part of what in MIPS32 would be a \"beq\" branch\n      \t\tldr $R7 ($R2)\n          adds $R5 $R5 $R7\n          adds $R2 $R2 4\n          adds $R1 $R1 -1\n          mov $R8 b1 # Our instruction \"bx\" requires a register\n          bx $R8\n        # pop $R6 and $R5\n      f1: ldr $R2 ($SP)\n      \t\tadds $SP $SP 4\n      \t\tldr $R1 ($SP)\n          adds $SP $SP -4\n          adds $SP $SP 8\n        # return\n        \tbx $LR\nmain: # call sumav function\n\t\t\tmov $R1 10\n      mov $R2 vector\n      bl sumav\n      # halt execution\n      halt\n      \n # RESULT OF THIS EXERCISE:\n # The sum of the elements of the vector is stored in $R5.\n \n # On the data segment, we have left the rest of the vectors we used to test the function as comments. Here are the results stored in $R5 in signed form:\n #  vector (length 10): 55\n # vectorA (length  5): 3\n # vectorB (length 10): -55\n # vectorC (length  7): 0",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "assembly",
+        "type": "string",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## state_current",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "{\n  \"time\": 1638705457457,\n  \"title\": \"clock 586 @ &#181;address 96\",\n  \"title_short\": \"clock 586,<br>&#181;add 96\",\n  \"content\": \"register R2 = 0x1028; register R5 = 0x37; register R7 = 0xa; register R8 = 0x801c; register R13 = 0xffff8; register R14 = 0x806c; register PC = 0xffff8040; register SR = 0x10000000; memory 0x1000 = 0x1; memory 0x1004 = 0x2; memory 0x1008 = 0x3; memory 0x100c = 0x4; memory 0x1010 = 0x5; memory 0x1014 = 0x6; memory 0x1018 = 0x7; memory 0x101c = 0x8; memory 0x1020 = 0x9; memory 0x1024 = 0xa; memory 0x8000 = 0x69adfff8; memory 0x8004 = 0x69ad0004; memory 0x8008 = 0x40206800; memory 0x800c = 0x69adfffc; memory 0x8010 = 0x40406800; memory 0x8014 = 0x48050000; memory 0x801c = 0x58200000; memory 0x8020 = 0xd0008040; memory 0x8024 = 0x4ce01000; memory 0x8028 = 0x60a53800; memory 0x802c = 0x68420004; memory 0x8030 = 0x6821ffff; memory 0x8034 = 0x48080000; memory 0x8038 = 0x801c; memory 0x803c = 0x88080000; memory 0x8040 = 0x4c406800; memory 0x8044 = 0x69ad0004; memory 0x8048 = 0x4c206800; memory 0x804c = 0x69adfffc; memory 0x8050 = 0x69ad0008; memory 0x8054 = 0x880e0000; memory 0x8058 = 0x48010000; memory 0x805c = 0xa; memory 0x8060 = 0x48020000; memory 0x8064 = 0x1000; memory 0x8068 = 0x84008000; memory 0x806c = 0x8c000000; memory 0xffff8 = 0x1000; memory 0xffffc = 0xa; \"\n}",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "state_current",
+        "type": "object",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## state_history",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "[]",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "state_history",
+        "type": "object",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## record",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "[]",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "record",
+        "type": "object",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## tag",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "5/12/2021 12:57:25",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "tag",
+        "type": "string",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source": "## notify",
+      "metadata": {}
+    },
+    {
+      "cell_type": "code",
+      "source": "true",
+      "outputs": [],
+      "execution_count": 1,
+      "metadata": {
+        "name": "notify",
+        "type": "boolean",
+        "collapsed": false,
+        "deletable": false,
+        "editable": false
+      }
+    }
+  ]
+}
